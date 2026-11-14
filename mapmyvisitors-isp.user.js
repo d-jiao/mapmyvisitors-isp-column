@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         MapMyVisitors - Inline ISP & Location Resolver
+// @name         MapMyVisitors - Inline ISP Column
 // @namespace    https://github.com/d-jiao/mapmyvisitors-isp-column
-// @version      1.2.0
+// @version      1.2.1
 // @description  Adds an inline ISP/Organization column to MapMyVisitors and resolves Unknown Locations and missing flags directly in the Recent Visitors column.
 // @author       Dian Jiao
 // @match        https://mapmyvisitors.com/web/*
@@ -62,6 +62,9 @@
             }
         }
         if (!visitorTable) return;
+
+        // Clean up any leftover Location column from older script versions
+        visitorTable.querySelectorAll('.tm-loc-header, .tm-loc-cell').forEach((el) => el.remove());
 
         // Add "ISP" header if not already added
         const headerRow = visitorTable.querySelector('thead tr') || visitorTable.querySelector('tr');
