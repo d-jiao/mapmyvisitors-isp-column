@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         MapMyVisitors - Inline ISP Column
 // @namespace    https://github.com/d-jiao/mapmyvisitors-isp-column
-// @version      1.2.1
-// @description  Adds an inline ISP/Organization column to MapMyVisitors and resolves Unknown Locations and missing flags directly in the Recent Visitors column.
+// @version      1.3.0
+// @description  Adds an inline ISP/Organization column to MapMyVisitors, hides Browser/OS/IP columns, and streamlines the Recent Visitors text.
 // @author       Dian Jiao
 // @match        https://mapmyvisitors.com/web/*
 // @match        https://*.mapmyvisitors.com/web/*
@@ -51,12 +51,24 @@
         return ipCache[ip];
     }
 
+    function cleanVisitorTextNodes(cell) {
+        const walker = document.createTreeWalker(cell, NodeFilter.SHOW_TEXT, null, false);
+        let node;
+        while ((node = walker.nextNode())) {
+            if (node.parentElement && node.parentElement.tagName !== 'A' && node.parentElement.tagName !== 'SPAN') {
+                node.nodeValue = node.nodeValue
+                    .replace(/Visitor\s+from\s*/gi, '')
+                    .replace(/\bwith\b/g, 'IP at');
+            }
+        }
+    }
+
     function enhanceTable() {
         const tables = document.querySelectorAll('table');
         let visitorTable = null;
 
         for (const table of tables) {
-            if (table.innerText.includes('Recent visitors') && table.innerText.includes('IP')) {
+            if (table.innerText.includes('Recent visitors')) {
                 visitorTable = table;
                 break;
             }
@@ -66,31 +78,56 @@
         // Clean up any leftover Location column from older script versions
         visitorTable.querySelectorAll('.tm-loc-header, .tm-loc-cell').forEach((el) => el.remove());
 
-        // Add "ISP" header if not already added
+        // Hide Browser (index 1), OS (index 2), IP (index 3) headers and add ISP header
         const headerRow = visitorTable.querySelector('thead tr') || visitorTable.querySelector('tr');
-        if (headerRow && !headerRow.querySelector('.tm-isp-header')) {
-            const ispTh = document.createElement(headerRow.children[0].tagName);
-            ispTh.className = 'tm-isp-header';
-            ispTh.textContent = 'ISP';
-            ispTh.style.fontWeight = 'bold';
-            headerRow.appendChild(ispTh);
+        if (headerRow) {
+            [1, 2, 3].forEach((idx) => {
+                if (headerRow.children[idx]) {
+                    headerRow.children[idx].style.display = 'none';
+                }
+            });
+
+            if (!headerRow.querySelector('.tm-isp-header')) {
+                const ispTh = document.createElement(headerRow.children[0].tagName);
+                ispTh.className = 'tm-isp-header';
+                ispTh.textContent = 'ISP';
+                ispTh.style.fontWeight = 'bold';
+                headerRow.appendChild(ispTh);
+            }
         }
 
         // Process each visitor row
         const rows = visitorTable.querySelectorAll('tbody tr');
         rows.forEach((row) => {
-            if (row.querySelector('.tm-isp-cell')) return;
             const cells = row.querySelectorAll('td');
             if (cells.length < 4) return; // Skip footer/login prompt rows
 
+            // Extract IP before hiding the cell
             const ipCell = cells[3];
-            const ipText = ipCell ? ipCell.innerText.trim() : '';
+            const ipText = (ipCell.dataset.rawIp || ipCell.innerText || ipCell.textContent || '').trim();
+            if (ipText && !ipCell.dataset.rawIp) {
+                ipCell.dataset.rawIp = ipText;
+            }
+
+            // Hide Browser (1), OS (2), and IP (3) cells
+            [1, 2, 3].forEach((idx) => {
+                if (cells[idx]) {
+                    cells[idx].style.display = 'none';
+                }
+            });
+
+            // Remove "Visitor from" and change "with" -> "IP at" in the first cell
+            const firstCell = cells[0];
+            if (firstCell) {
+                cleanVisitorTextNodes(firstCell);
+            }
+
+            if (row.querySelector('.tm-isp-cell')) return;
 
             const ispCell = document.createElement('td');
             ispCell.className = 'tm-isp-cell';
             ispCell.style.fontSize = '0.9em';
             ispCell.style.color = '#333';
-            ispCell.style.whiteSpace = 'nowrap';
             ispCell.textContent = 'Loading...';
             row.appendChild(ispCell);
 
@@ -98,10 +135,9 @@
                 fetchIPInfo(ipText).then(({ isp, location, flagImg }) => {
                     ispCell.textContent = isp;
 
-                    const firstCell = cells[0];
                     if (!firstCell || location === 'Unknown') return;
 
-                    // Replace "Unknown Location" or country-only text in the first column
+                    // Update location and second ("IP at") link in the first column
                     const links = firstCell.querySelectorAll('a');
                     links.forEach((a) => {
                         const text = a.innerText.trim();
